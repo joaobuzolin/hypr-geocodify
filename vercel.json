@@ -1,16 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "rewrites": [
-    {
-      "source": "/.netlify/functions/geocode",
-      "destination": "/api/geocode"
-    },
-    {
-      "source": "/.netlify/functions/places-search",
-      "destination": "/api/places-search"
-    }
-  ],
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
 
   "headers": [
     {
