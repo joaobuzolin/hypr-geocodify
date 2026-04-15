@@ -1166,107 +1166,101 @@ function updateOverview() {
 // ─── Ranking Tab ─────────────────────────────────────────────────────────────
 function updateRanking() {
   var grp = groupBy(filteredData, 'bandeira');
+  var MIN_PDVS = 3;
+
   var ranked = Object.entries(grp).map(function(entry) {
     var b = entry[0], rows = entry[1];
-    var shareAvgVal = avg(rows, 'share_reais_sku_dimensao') * 100;
-    var diffAvgVal = avg(rows, 'percentual_diff_media_dimensao');
-    var oportRaw = rows.map(function(r) { return parseFloat(r.oportunidade_dimensao || 0); });
-    var oportAvgVal = oportRaw.reduce(function(a,b) { return a+b; }, 0) / (oportRaw.length || 1);
-    var hasOportData = oportRaw.some(function(v) { return v !== 0; });
-    // Proxy de oportunidade: PDVs abaixo da média × magnitude da perda
-    var losePDVs = rows.filter(function(r) { return parseFloat(r.percentual_diff_media_dimensao || 0) < -2; });
-    var oportProxy = losePDVs.length * Math.abs(diffAvgVal < 0 ? diffAvgVal : 0);
+    var withShare = rows.filter(function(r) { return r.share_reais_sku_dimensao != null && parseFloat(r.share_reais_sku_dimensao) > 0; });
+    var withoutShare = rows.length - withShare.length;
+    var shareAvgVal = withShare.length ? avg(withShare, 'share_reais_sku_dimensao') * 100 : 0;
+    var diffWithShare = withShare.length ? avg(withShare, 'percentual_diff_media_dimensao') : null;
     return {
-      name: b, count: rows.length, shareAvg: shareAvgVal, diffAvg: diffAvgVal,
-      oportAvg: oportAvgVal, hasOportData: hasOportData, oportProxy: oportProxy,
-      losePDVs: losePDVs.length,
+      name: b, count: rows.length, withShare: withShare.length,
+      withoutShare: withoutShare, shareAvg: shareAvgVal,
+      diffReal: diffWithShare,
+      presence: rows.length > 0 ? (withShare.length / rows.length * 100) : 0,
     };
-  }).sort(function(a,b) { return b.shareAvg - a.shareAvg; });
+  });
 
-  var maxShare = Math.max.apply(null, ranked.map(function(r) { return r.shareAvg; }).concat([1]));
+  var withPresence = ranked.filter(function(r) { return r.withShare >= MIN_PDVS; });
+  var noPresence = ranked.filter(function(r) { return r.withShare === 0 && r.count >= MIN_PDVS; });
 
-  // Decidir modo: se poucas bandeiras, ranking único. Se muitas, top/bottom split.
-  var isFewBandeiras = ranked.length <= 15;
+  var isFew = withPresence.length <= 12;
   var topSection = document.getElementById('rank-top-section');
   var bottomSection = document.getElementById('rank-bottom-section');
+  var oportSection = document.getElementById('rank-oport-section');
 
-  function renderRankList(id, items, valueKey, maxVal, badgeFn) {
+  function renderList(id, items, renderFn) {
     var el = document.getElementById(id);
     if (!el) return;
-    if (!items.length) { el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">Sem dados para exibir</div>'; return; }
-    el.innerHTML = items.map(function(item, i) {
-      var val = item[valueKey];
-      var badge = badgeFn ? badgeFn(item) : '';
-      var barColor = item.diffAvg > 2 ? _cssVar('--win') : item.diffAvg < -2 ? _cssVar('--lose') : _cssVar('--neutral');
+    if (!items.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">Sem dados suficientes (min. ' + MIN_PDVS + ' PDVs)</div>';
+      return;
+    }
+    el.innerHTML = items.map(renderFn).join('');
+  }
+
+  // Ordenar por diff real (performance vs media, excluindo PDVs sem presenca)
+  var topPerf = withPresence.slice().sort(function(a,b) { return (b.diffReal||0) - (a.diffReal||0); });
+
+  if (isFew) {
+    if (topSection) topSection.querySelector('.panel-section-title').textContent = 'Performance por rede (' + withPresence.length + ')';
+    if (bottomSection) bottomSection.style.display = 'none';
+    var maxS = Math.max.apply(null, withPresence.map(function(r) { return r.shareAvg; }).concat([1]));
+    renderList('rank-top', topPerf, function(item, i) {
+      var d = item.diffReal || 0;
+      var barColor = d > 2 ? _cssVar('--win') : d < -2 ? _cssVar('--lose') : _cssVar('--neutral');
       return '<div class="rank-item">' +
         '<span class="rank-num">' + (i+1) + '</span>' +
         '<span class="rank-name" title="' + _escForHtml(item.name) + '">' + _escForHtml(item.name) + '</span>' +
-        '<div class="rank-bar-wrap"><div class="rank-bar" style="width:' + Math.min(val/maxVal*100,100) + '%;background:' + barColor + '"></div></div>' +
-        '<span class="rank-val" style="color:' + barColor + '">' + val.toFixed(1) + '%</span>' +
-        badge +
+        '<div class="rank-bar-wrap"><div class="rank-bar" style="width:' + Math.min(item.shareAvg/maxS*100,100) + '%;background:' + barColor + '"></div></div>' +
+        '<span class="rank-val" style="color:' + barColor + '">' + item.shareAvg.toFixed(1) + '%</span>' +
+        '<span class="rank-badge neutral">' + item.withShare + ' PDVs</span>' +
       '</div>';
-    }).join('');
-  }
-
-  var diffBadge = function(item) {
-    var cls = item.diffAvg > 2 ? 'win' : item.diffAvg < -2 ? 'lose' : 'neutral';
-    var label = item.diffAvg > 2 ? '▲ ganha' : item.diffAvg < -2 ? '▼ perde' : '→ neutro';
-    return '<span class="rank-badge ' + cls + '">' + label + '</span>';
-  };
-
-  if (isFewBandeiras) {
-    // Ranking único
-    if (topSection) topSection.querySelector('.panel-section-title').textContent = 'Ranking por share';
-    if (bottomSection) bottomSection.style.display = 'none';
-    renderRankList('rank-top', ranked, 'shareAvg', maxShare, function(item) {
-      return diffBadge(item) + '<span class="rank-badge neutral">' + item.count + ' PDVs</span>';
     });
   } else {
-    // Top + Bottom split
-    if (topSection) topSection.querySelector('.panel-section-title').textContent = 'Top bandeiras por share';
-    if (bottomSection) bottomSection.style.display = '';
-    var top = ranked.slice(0, 7);
-    // Bottom: só bandeiras com share > 0 (excluir onde a marca não vende)
-    var withPresence = ranked.filter(function(r) { return r.shareAvg > 0.1; });
-    var bottom = withPresence.slice().sort(function(a,b) { return a.shareAvg - b.shareAvg; }).slice(0, 7);
-    renderRankList('rank-top', top, 'shareAvg', maxShare, diffBadge);
-    renderRankList('rank-bottom', bottom, 'shareAvg', maxShare, diffBadge);
-  }
+    if (topSection) topSection.querySelector('.panel-section-title').textContent = 'Onde a marca performa melhor';
+    if (bottomSection) { bottomSection.style.display = ''; bottomSection.querySelector('.panel-section-title').textContent = 'Onde precisa melhorar'; }
+    var topItems = topPerf.filter(function(r) { return (r.diffReal||0) > 0; }).slice(0, 7);
+    var bottomItems = topPerf.filter(function(r) { return (r.diffReal||0) < 0; }).sort(function(a,b) { return (a.diffReal||0) - (b.diffReal||0); }).slice(0, 7);
+    var maxDiff = Math.max.apply(null, topItems.concat(bottomItems).map(function(r) { return Math.abs(r.diffReal||0); }).concat([1]));
 
-  // Oportunidade: usar campo real se disponível, senão proxy (losePDVs × magnitude)
-  var hasRealOport = ranked.some(function(r) { return r.hasOportData; });
-  var oportList;
-  if (hasRealOport) {
-    oportList = ranked.slice().sort(function(a,b) { return b.oportAvg - a.oportAvg; }).slice(0, 7);
-  } else {
-    // Proxy: bandeiras com mais PDVs abaixo da média = maior oportunidade de crescimento
-    oportList = ranked.filter(function(r) { return r.losePDVs > 0; })
-      .sort(function(a,b) { return b.oportProxy - a.oportProxy; }).slice(0, 7);
-  }
-
-  var oportTitle = document.querySelector('#rank-oport-section .panel-section-title');
-  if (oportTitle) oportTitle.textContent = hasRealOport ? 'Maior oportunidade' : 'Maior potencial de crescimento';
-
-  var maxOportVal = Math.max.apply(null, oportList.map(function(r) { return hasRealOport ? r.oportAvg : r.oportProxy; }).concat([1]));
-  var oportEl = document.getElementById('rank-oport');
-  if (oportEl) {
-    if (!oportList.length) {
-      oportEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">Nenhuma bandeira com oportunidade identificada</div>';
-    } else {
-      oportEl.innerHTML = oportList.map(function(item, i) {
-        var val = hasRealOport ? item.oportAvg : item.oportProxy;
-        var displayVal = hasRealOport ? item.oportAvg.toFixed(2) : item.losePDVs + ' PDVs';
-        return '<div class="rank-item">' +
-          '<span class="rank-num">' + (i+1) + '</span>' +
-          '<span class="rank-name" title="' + _escForHtml(item.name) + '">' + _escForHtml(item.name) + '</span>' +
-          '<div class="rank-bar-wrap"><div class="rank-bar" style="width:' + Math.min(val/maxOportVal*100,100) + '%;background:var(--accent)"></div></div>' +
-          '<span class="rank-val" style="color:var(--accent-light)">' + displayVal + '</span>' +
-          '<span class="rank-badge neutral">' + item.count + ' PDVs</span>' +
-        '</div>';
-      }).join('');
+    function renderDiffItem(item, i) {
+      var d = item.diffReal || 0;
+      var barColor = d > 2 ? _cssVar('--win') : d < -2 ? _cssVar('--lose') : _cssVar('--neutral');
+      return '<div class="rank-item">' +
+        '<span class="rank-num">' + (i+1) + '</span>' +
+        '<span class="rank-name" title="' + _escForHtml(item.name) + '">' + _escForHtml(item.name) + '</span>' +
+        '<div class="rank-bar-wrap"><div class="rank-bar" style="width:' + Math.min(Math.abs(d)/maxDiff*100,100) + '%;background:' + barColor + '"></div></div>' +
+        '<span class="rank-val" style="color:' + barColor + '">' + (d > 0 ? '+' : '') + d.toFixed(1) + '%</span>' +
+        '<span class="rank-badge neutral">' + item.withShare + ' PDVs \u00b7 ' + item.shareAvg.toFixed(1) + '%</span>' +
+      '</div>';
     }
+    renderList('rank-top', topItems, renderDiffItem);
+    renderList('rank-bottom', bottomItems, renderDiffItem);
   }
+
+  // Oportunidade: grandes redes sem presenca ou com baixa presenca
+  if (oportSection) oportSection.querySelector('.panel-section-title').textContent = 'Redes sem presenca da marca';
+  var oportItems = noPresence.sort(function(a,b) { return b.count - a.count; }).slice(0, 7);
+  if (!oportItems.length) {
+    if (oportSection) oportSection.querySelector('.panel-section-title').textContent = 'Menor presenca da marca';
+    oportItems = withPresence.filter(function(r) { return r.presence < 50; })
+      .sort(function(a,b) { return a.presence - b.presence; }).slice(0, 7);
+  }
+  renderList('rank-oport', oportItems, function(item, i) {
+    var hasAny = item.withShare > 0;
+    var presenceLabel = hasAny ? (item.presence.toFixed(0) + '% c/ share') : 'zero presenca';
+    return '<div class="rank-item">' +
+      '<span class="rank-num">' + (i+1) + '</span>' +
+      '<span class="rank-name" title="' + _escForHtml(item.name) + '">' + _escForHtml(item.name) + '</span>' +
+      '<div class="rank-bar-wrap"><div class="rank-bar" style="width:' + Math.min(item.count/Math.max(oportItems[0].count,1)*100,100) + '%;background:var(--accent)"></div></div>' +
+      '<span class="rank-val" style="color:var(--text-dim)">' + item.count + ' PDVs</span>' +
+      '<span class="rank-badge ' + (hasAny ? 'neutral' : 'lose') + '">' + presenceLabel + '</span>' +
+    '</div>';
+  });
 }
+
 
 // ─── Analysis Tab ────────────────────────────────────────────────────────────
 function updateAnalysis() {
