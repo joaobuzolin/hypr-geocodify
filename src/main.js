@@ -25,32 +25,26 @@ import { parseCSV, detectAndNormalize } from './lib/csv-parser.js';
 // ── Bandeira ────────────────────────────────────────────────────────────────
 import { normalizeBandeira, buildBandeiraGroups } from './lib/bandeira.js';
 
-// ── Geocoder ────────────────────────────────────────────────────────────────
-import { clearGeoCache, geocodeHERE, reverseGeocodeHERE } from './lib/geocoder.js';
+// ── Geocoder (only clearGeoCache used — geocodeHERE/reverseGeocodeHERE kept inline) ──
+import { clearGeoCache } from './lib/geocoder.js';
 
-// ── Receita ─────────────────────────────────────────────────────────────────
-import { clearReceitaCache, aplicarReceita, buscarReceita } from './lib/receita.js';
+// ── Receita (only clearReceitaCache used — buscarReceita/aplicarReceita kept inline) ──
+import { clearReceitaCache } from './lib/receita.js';
 
-// ── Map Engine ──────────────────────────────────────────────────────────────
-import { buildDarkStyle, pinColor, renderMarkers, setupMapSources, setupMapInteractions, buildPopup } from './lib/map-engine.js';
+// ── Map Engine (pinColor, renderMarkers, buildPopup deleted from inline) ────
+import { pinColor, renderMarkers, buildPopup } from './lib/map-engine.js';
 
-// ── Analytics ───────────────────────────────────────────────────────────────
+// ── Analytics (updateOverlay, updatePanels deleted from inline) ─────────────
 import { updateOverlay, updatePanels } from './lib/analytics.js';
 
-// ── Panels ──────────────────────────────────────────────────────────────────
+// ── Panels (all deleted from inline) ────────────────────────────────────────
 import { setTab, initResizablePanels, toggleFullMap, toggleSidebar, togglePanel } from './lib/panels.js';
 
-// ── Gallery ─────────────────────────────────────────────────────────────────
-import { loadGallery, buildMapCard } from './lib/gallery.js';
-
-// ── Save/Load ───────────────────────────────────────────────────────────────
+// ── Save/Load (loadMapPDVs not defined inline) ──────────────────────────────
 import { loadMapPDVs } from './lib/save-load.js';
 
-// ── Export ───────────────────────────────────────────────────────────────────
-import { downloadGeocoderCSV } from './lib/export.js';
-
-// ── Supabase ────────────────────────────────────────────────────────────────
-import { sbFetch, getSupabase } from './lib/supabase.js';
+// ── Supabase (getSupabase not defined inline) ───────────────────────────────
+import { getSupabase } from './lib/supabase.js';
 
 // ── Auth + Theme: kept inline (UI-specific logic not in modules yet) ────────
 
@@ -60,7 +54,9 @@ import { BR_STATES, BR_CITIES, UF_REGIONS, BR_CAPITALS } from './lib/geo-data.js
 // ─── Expose to window.* for inline JS compatibility ─────────────────────────
 // TODO Phase 3: remove all of these once inline JS is fully migrated
 
-// Utils
+// ── Functions DELETED from inline → must be provided by modules ──────────────
+
+// Utils (deleted from inline)
 window._escForHtml = escHtml;
 window.escHtml = escHtml;
 window.pct = pct;
@@ -68,36 +64,21 @@ window.pctRaw = pctRaw;
 window.avg = avg;
 window.groupBy = groupBy;
 window.throttle = throttle;
-window._cssVar = cssVar;
-window.cssVar = cssVar;
 
-// CSV
+// CSV (deleted from inline)
 window.parseCSV = parseCSV;
 window.detectAndNormalize = detectAndNormalize;
 
-// Bandeira
+// Bandeira (deleted from inline)
 window.normalizeBandeira = normalizeBandeira;
 window.buildBandeiraGroups = buildBandeiraGroups;
 
-// Geocoder
-window.geocodeHERE = geocodeHERE;
-window.reverseGeocodeHERE = reverseGeocodeHERE;
-window.clearGeoCache = clearGeoCache;
-
-// Receita
-window.aplicarReceita = aplicarReceita;
-window.buscarReceita = buscarReceita;
-window.clearReceitaCache = clearReceitaCache;
-
-// Map engine
+// Map rendering (deleted from inline)
 window.pinColor = pinColor;
 window.renderMarkers = renderMarkers;
 window.buildPopup = buildPopup;
-window._buildDarkStyle = buildDarkStyle;
-window._setupMapSources = setupMapSources;
-window._setupMapInteractions = setupMapInteractions;
 
-// Analytics
+// Analytics (deleted from inline)
 window.updateOverlay = updateOverlay;
 window.updatePanels = updatePanels;
 window.updateAnalytics = () => {
@@ -106,26 +87,23 @@ window.updateAnalytics = () => {
   updatePanels(fd);
 };
 
-// Panels
+// Panels (deleted from inline)
 window.setTab = setTab;
 window.initResizablePanels = initResizablePanels;
 window.toggleFullMap = toggleFullMap;
 window.toggleSidebar = toggleSidebar;
 window.togglePanel = togglePanel;
 
-// Auth + Theme: kept inline (not exported from modules)
-
-// Gallery
-window.loadGallery = loadGallery;
-window.buildMapCard = buildMapCard;
-
-// Save/Load + Supabase
+// Module-only (no inline equivalent)
+window.clearGeoCache = clearGeoCache;
+window.clearReceitaCache = clearReceitaCache;
 window.loadMapPDVs = loadMapPDVs;
-window.sbFetch = sbFetch;
 window.getSupabase = getSupabase;
 
-// Export
-window.downloadGeocoderCSV = downloadGeocoderCSV;
+// ── NOT exported (still defined inline — DO NOT overwrite) ──────────────────
+// sbFetch, loadGallery, buildMapCard, applyGalleryFilters, downloadGeocoderCSV
+// geocodeHERE, reverseGeocodeHERE, buscarReceita, aplicarReceita
+// _buildDarkStyle, _setupMapSources, _setupMapInteractions, _cssVar
 
 // Geo data
 window.BR_STATES = BR_STATES;
