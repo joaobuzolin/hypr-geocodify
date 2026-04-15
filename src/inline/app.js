@@ -3957,7 +3957,7 @@ function checkReenrichBar() {
   var unidentified = allData.filter(function(r) {
     return r.cnpj && (!r.bandeira || r.bandeira === 'Não identificado' || r.bandeira === 'Carregando...' || r.bandeira === 'Desconhecido');
   });
-  if (unidentified.length > 5) {
+  if (unidentified.length > 50) {
     document.getElementById('reenrich-count').textContent = unidentified.length;
     bar.style.display = '';
   } else {
