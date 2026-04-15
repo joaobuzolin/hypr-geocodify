@@ -29,8 +29,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window._supaReady) return;
     var url  = 'https://qfyqvcxhcmduhknbpofx.supabase.co';
     var anon = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmeXF2Y3hoY21kdWhrbmJwb2Z4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0Mjk1NjAsImV4cCI6MjA4OTAwNTU2MH0.k92V1LN4OqqdtfF86iml4L-gVg0AabENKt7S5vlP2dk';
-    window._supa = window.supabase.createClient(url, anon);
+    _supa = window.supabase.createClient(url, anon);
+    window._supa = _supa;
     window._supaReady = true;
+    SUPABASE_URL = url;
+    SUPABASE_ANON = anon;
     window.SUPABASE_URL  = url;
     window.SUPABASE_ANON = anon;
     if (typeof _initMapStyles === 'function') _initMapStyles();
