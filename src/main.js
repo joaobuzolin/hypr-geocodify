@@ -1,15 +1,28 @@
 // ─── HYPR Geocodify — Vite Entry Point ──────────────────────────────────────
-// All JS now lives in modules. Zero inline JS in index.html.
+// All JS lives in domain modules under src/inline/.
+// Zero inline JS in index.html (except theme flash prevention).
 //
-// This file imports:
-// 1. CSS (processed by Vite)
-// 2. The legacy app code (extracted from inline, exposes to window.*)
-//
-// The legacy app-legacy.js handles its own window.* exposure internally.
-// ES modules from src/lib/ are NOT imported here anymore — they were
-// duplicates of functions that also exist in app-legacy.js.
-// Once app-legacy.js is split into proper domain modules, the lib/
-// modules will replace it piece by piece.
+// Import order matters: app_init must come first (shared state + bootstrap),
+// then domains in dependency order.
 
 import './styles/app.css';
-import './inline/app-legacy.js';
+
+// ── Shared state, bootstrap, theme, supabase helpers ────────────────────────
+import './inline/app_init.js';
+import './inline/auth_ui.js';
+
+// ── Map + rendering ─────────────────────────────────────────────────────────
+import './inline/map.js';
+import './inline/analytics.js';
+import './inline/filters.js';
+
+// ── Data operations ─────────────────────────────────────────────────────────
+import './inline/receita.js';
+import './inline/geocoding.js';
+import './inline/upload.js';
+
+// ── UI features ─────────────────────────────────────────────────────────────
+import './inline/modals.js';
+import './inline/gallery.js';
+import './inline/save.js';
+import './inline/places.js';
