@@ -2714,82 +2714,84 @@ async function startGeocoding() {
       filteredData = [...allData]; populateFilters(); applyFilters(); updatePanels();
     }
 
-    // ── STEP 3: Enrich remaining via buscarReceita (handles 8 AND 14 digit CNPJs) ──
+    // ── STEP 3: Enrich via server-side batch proxy /api/cnpj-enrich ──
+    // Sends 25 CNPJs per request. Proxy does parallel API race + Supabase cache.
+    // Much faster than client-side individual calls (server IPs have higher rate limits).
     var remainingKeys = Object.keys(cnpjGroups);
-    var ENRICH_BATCH = 8;
-    var ENRICH_DELAY = 100;
-    var newCacheEntries = [];
+    var ENRICH_BATCH = 25;
+    var ENRICH_DELAY = 50;
 
     for (var ei = 0; ei < remainingKeys.length; ei += ENRICH_BATCH) {
       if (geocodingCancelled) break;
-      var batch = remainingKeys.slice(ei, ei + ENRICH_BATCH);
+      var batchKeys = remainingKeys.slice(ei, ei + ENRICH_BATCH);
 
-      await Promise.all(batch.map(async function(key) {
-        var rows = cnpjGroups[key];
-        var receita = await buscarReceita(rows[0].cnpj || '');
-        if (receita && receita.nome_exibicao) {
-          rows.forEach(function(row) { aplicarReceita(row, receita); });
-          enrichOk += rows.length;
-          newCacheEntries.push({
-            cnpj: key, nome_fantasia: receita.nome_fantasia || null,
-            razao_social: receita.razao_social || null, nome_exibicao: receita.nome_exibicao || null,
-            municipio: receita.municipio || null, uf: receita.uf_receita || null,
-            cep: receita.cep || null, situacao: receita.situacao || null,
-            atividade: receita.atividade || null, endereco_receita: receita.endereco_receita || null,
-            logradouro: receita.logradouro || null, bairro: receita.bairro || null,
-            numero: receita.numero || null,
+      // Extract raw CNPJ numbers for the proxy
+      var cnpjNums = batchKeys.map(function(key) {
+        return key.startsWith('raiz_') ? key.slice(5) : key;
+      });
+
+      try {
+        var proxyResp = await fetch('/api/cnpj-enrich', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cnpjs: cnpjNums }),
+        });
+
+        if (proxyResp.ok) {
+          var proxyData = await proxyResp.json();
+          var proxyResults = proxyData.results || {};
+
+          batchKeys.forEach(function(key) {
+            var rows = cnpjGroups[key];
+            if (!rows) return;
+            var lookupKey = key.startsWith('raiz_') ? key.slice(5) : key;
+            var result = proxyResults[lookupKey];
+            if (result && (result.nome_exibicao || result.nome_fantasia || result.razao_social)) {
+              var receita = {
+                nome_fantasia: result.nome_fantasia || '', razao_social: result.razao_social || '',
+                nome_exibicao: result.nome_exibicao || result.nome_fantasia || result.razao_social || '',
+                municipio: result.municipio || '', uf_receita: result.uf || '',
+                cep: result.cep || '', situacao: result.situacao || '',
+                atividade: result.atividade || '', endereco_receita: result.endereco_receita || '',
+              };
+              rows.forEach(function(row) { aplicarReceita(row, receita); });
+              _receitaCache[key] = receita;
+              enrichOk += rows.length;
+            } else {
+              rows.forEach(function(row) { row.bandeira = 'Não identificado'; });
+              enrichFail += rows.length;
+            }
+            enrichDone += rows.length;
           });
         } else {
-          rows.forEach(function(row) { row.bandeira = 'Não identificado'; });
-          enrichFail += rows.length;
+          // Proxy failed — mark batch as failed
+          batchKeys.forEach(function(key) {
+            var rows = cnpjGroups[key];
+            if (rows) {
+              rows.forEach(function(row) { row.bandeira = 'Não identificado'; });
+              enrichFail += rows.length; enrichDone += rows.length;
+            }
+          });
         }
-        enrichDone += rows.length;
-      }));
+      } catch(e) {
+        // Network error — fallback: mark batch as failed
+        batchKeys.forEach(function(key) {
+          var rows = cnpjGroups[key];
+          if (rows) {
+            rows.forEach(function(row) { row.bandeira = 'Não identificado'; });
+            enrichFail += rows.length; enrichDone += rows.length;
+          }
+        });
+      }
 
       updateEnrichUI(enrichOk, enrichFail, enrichDone, totalRows, enrichStart, '');
 
       // Periodic render so user sees progress on map
-      if ((ei + ENRICH_BATCH) % 40 === 0 || ei + ENRICH_BATCH >= remainingKeys.length) {
+      if ((ei + ENRICH_BATCH) % 100 === 0 || ei + ENRICH_BATCH >= remainingKeys.length) {
         filteredData = [...allData]; populateFilters(); applyFilters(); updatePanels();
       }
 
       await new Promise(function(r) { setTimeout(r, ENRICH_DELAY); });
-    }
-
-    // ── STEP 4: Retry failed ones (clear in-memory cache, try once more) ──
-    var retryKeys = remainingKeys.filter(function(key) {
-      var rows = cnpjGroups[key];
-      return rows && rows.some(function(r) { return r.bandeira === 'Não identificado' || r.bandeira === 'Carregando...'; });
-    });
-    if (retryKeys.length > 0 && !geocodingCancelled) {
-      document.getElementById('geo-title-text').textContent = 'Retry — recuperando nomes';
-      // Clear failed entries from in-memory cache
-      retryKeys.forEach(function(key) {
-        if (_receitaCache[key] === null || _receitaCache[key] === undefined) delete _receitaCache[key];
-      });
-      for (var ri = 0; ri < retryKeys.length; ri += 3) {
-        if (geocodingCancelled) break;
-        var rBatch = retryKeys.slice(ri, ri + 3);
-        await Promise.all(rBatch.map(async function(key) {
-          var rows = cnpjGroups[key];
-          if (!rows) return;
-          var receita = await buscarReceita(rows[0].cnpj || '');
-          if (receita && receita.nome_exibicao) {
-            rows.forEach(function(row) { aplicarReceita(row, receita); });
-            enrichOk += rows.length; enrichFail -= rows.length;
-            newCacheEntries.push({
-              cnpj: key, nome_fantasia: receita.nome_fantasia || null,
-              razao_social: receita.razao_social || null, nome_exibicao: receita.nome_exibicao || null,
-              municipio: receita.municipio || null, uf: receita.uf_receita || null,
-              cep: receita.cep || null, situacao: receita.situacao || null,
-              atividade: receita.atividade || null, endereco_receita: receita.endereco_receita || null,
-              logradouro: receita.logradouro || null, bairro: receita.bairro || null,
-              numero: receita.numero || null,
-            });
-          }
-        }));
-        await new Promise(function(r) { setTimeout(r, 400); });
-      }
     }
 
     // Mark any remaining as definitively not identified
@@ -2797,20 +2799,7 @@ async function startGeocoding() {
       if (!row.bandeira || row.bandeira === 'Carregando...') row.bandeira = 'Não identificado';
     });
 
-    // ── STEP 5: Save new entries to Supabase cache (fire-and-forget) ──
-    if (newCacheEntries.length > 0) {
-      try {
-        var SAVE_CHUNK = 200;
-        for (var si = 0; si < newCacheEntries.length; si += SAVE_CHUNK) {
-          var saveChunk = newCacheEntries.slice(si, si + SAVE_CHUNK);
-          sbFetch('cnpj_cache', {
-            method: 'POST',
-            headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-            body: JSON.stringify(saveChunk),
-          }).catch(function() {});
-        }
-      } catch(e) {}
-    }
+    // Cache save is handled by the proxy — no client-side save needed
 
     // Final render
     filteredData = [...allData];
