@@ -1279,6 +1279,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* Shared mode — hide all edit/auth controls */
 .shared-mode #btn-back-gallery,
 .shared-mode #btn-share-map,
+.shared-mode #btn-reenrich-map,
 .shared-mode #gallery-screen,
 .shared-mode #login-screen,
 .shared-mode #upload-zone,

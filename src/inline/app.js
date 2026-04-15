@@ -3953,15 +3953,20 @@ window._currentOpenMapId = null;
 function checkReenrichBar() {
   if (_isSharedMode || !currentUser) return;
   var bar = document.getElementById('reenrich-bar');
-  if (!bar) return;
+  var headerBtn = document.getElementById('btn-reenrich-map');
   var unidentified = allData.filter(function(r) {
     return r.cnpj && (!r.bandeira || r.bandeira === 'Não identificado' || r.bandeira === 'Carregando...' || r.bandeira === 'Desconhecido');
   });
-  if (unidentified.length > 50) {
-    document.getElementById('reenrich-count').textContent = unidentified.length;
-    bar.style.display = '';
-  } else {
-    bar.style.display = 'none';
+  // Header button: show when any unidentified exist
+  if (headerBtn) headerBtn.style.display = unidentified.length > 0 ? '' : 'none';
+  // Bar: only show for large counts (>50)
+  if (bar) {
+    if (unidentified.length > 50) {
+      document.getElementById('reenrich-count').textContent = unidentified.length;
+      bar.style.display = '';
+    } else {
+      bar.style.display = 'none';
+    }
   }
 }
 
