@@ -1,0 +1,32 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+
+  "rewrites": [
+    {
+      "source": "/.netlify/functions/geocode",
+      "destination": "/api/geocode"
+    },
+    {
+      "source": "/.netlify/functions/places-search",
+      "destination": "/api/places-search"
+    }
+  ],
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ],
+
+  "functions": {
+    "api/*.js": {
+      "memory": 256,
+      "maxDuration": 15
+    }
+  }
+}
