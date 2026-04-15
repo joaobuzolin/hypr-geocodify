@@ -2986,20 +2986,32 @@ function handleCSVFile(file) {
         // Ler XLSX com SheetJS
         const data = new Uint8Array(ev.target.result);
         const wb = XLSX.read(data, { type: 'array' });
-        // Usar primeira aba
         const ws = wb.Sheets[wb.SheetNames[0]];
-        // Converter para array de objetos, headers normalizados (lowercase, sem acentos)
-        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        parsed = raw.map(row => {
-          const normalized = {};
-          Object.entries(row).forEach(([k, v]) => {
-            const key = String(k).toLowerCase()
-              .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-              .trim().replace(/\s+/g, '_');
-            normalized[key] = v != null ? String(v) : '';
-          });
-          return normalized;
-        });
+        
+        // Detectar header real: SheetJS usa row 1 como header por padrão,
+        // mas exports da Kantar/Varejo360 às vezes têm rows de aviso antes do header.
+        // Estratégia: ler como array puro, encontrar a row que tem colunas conhecidas,
+        // e usar essa como header.
+        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const knownCols = ['marca', 'cnpj', 'lat', 'lon', 'latitude', 'longitude', 'endereco', 'nome', 'name', 'address', 'cnpj_raiz', 'bandeira'];
+        
+        let headerRow = 0;
+        for (let r = 0; r < Math.min(aoa.length, 10); r++) {
+          const cells = (aoa[r] || []).map(c => String(c || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim());
+          const matchCount = cells.filter(c => knownCols.some(kc => c.includes(kc))).length;
+          if (matchCount >= 2) { headerRow = r; break; }
+        }
+        
+        // Construir objetos usando o header correto
+        const headers = (aoa[headerRow] || []).map(h => String(h || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, '_'));
+        parsed = [];
+        for (let r = headerRow + 1; r < aoa.length; r++) {
+          const row = aoa[r];
+          if (!row || !row.some(v => v !== '' && v != null)) continue;
+          const obj = {};
+          headers.forEach((h, i) => { obj[h] = row[i] != null ? String(row[i]) : ''; });
+          parsed.push(obj);
+        }
       } else {
         // Ler CSV normalmente
         parsed = parseCSV(ev.target.result);
