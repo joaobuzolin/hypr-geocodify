@@ -102,6 +102,7 @@ async function handleTextSearch(body) {
   const data = await resp.json();
 
   if (!resp.ok) {
+    console.error('Google Places textSearch error:', resp.status, JSON.stringify(data));
     throw new Error(data.error?.message || 'Google API error');
   }
 
