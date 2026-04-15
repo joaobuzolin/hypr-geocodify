@@ -4,7 +4,7 @@ Plataforma de geocodificação e inteligência geoespacial.
 
 ## Stack
 
-- HTML/CSS/JS (vanilla)
+- Vanilla JS (modular, bundled by Vite)
 - Supabase (auth + database)
 - MapLibre GL JS (mapas)
 - Chart.js (gráficos)
@@ -15,58 +15,55 @@ Plataforma de geocodificação e inteligência geoespacial.
 ## Estrutura
 
 ```
-├── index.html              # App principal (mapa, geocoding, gallery)
+├── index.html              # HTML puro (zero inline JS)
 ├── comparativo.html        # Attack Plan (comparação de períodos)
-├── vercel.json             # Config Vercel + rewrites
+├── vercel.json             # Config Vercel + headers + functions
+├── vite.config.js          # Vite build config
+│
 ├── api/                    # Vercel Serverless Functions
-│   ├── geocode.js          # Proxy HERE Geocoding
-│   └── places-search.js   # Proxy Google Places
-├── netlify/                # Legacy (mantido como referência)
-│   └── functions/
-│       ├── geocode.js
-│       └── places-search.js
-├── favicon.ico
-├── apple-touch-icon.png
-├── icon-192.png
-├── geocodify_cover.png
-└── login-bg.webp
+│   ├── geocode.js          # Proxy HERE Geocoding (key server-side)
+│   └── places-search.js    # Proxy Google Places (key server-side)
+│
+├── src/
+│   ├── main.js             # Vite entry point (imports all modules)
+│   ├── styles/app.css      # All styles
+│   └── inline/             # Domain modules
+│       ├── app_init.js     # Shared state, bootstrap, theme, supabase
+│       ├── map.js          # MapLibre styles, init, interactions
+│       ├── filters.js      # Multi-select, populate, apply, badges
+│       ├── analytics.js    # Overview, ranking, analysis tabs, charts
+│       ├── geocoding.js    # HERE geocoding, reverse, enrich
+│       ├── receita.js      # CNPJ lookup (Receita Federal)
+│       ├── upload.js       # File upload, CSV handling
+│       ├── auth_ui.js      # Login/logout UI
+│       ├── modals.js       # Map type modal, varejo sub-modal
+│       ├── gallery.js      # Saved maps gallery, cards, pagination
+│       ├── save.js         # Save modal, auto-save
+│       └── places.js       # Places Discovery, pin mode, search
+│
+└── public/                 # Static assets (favicon, icons, images)
 ```
 
 ## Setup local
 
-Não precisa de build — é HTML estático + serverless functions.
-
-Para testar as functions localmente, instale o Vercel CLI:
-
 ```bash
-npm i -g vercel
-vercel dev
+npm install
+npm run dev
 ```
-
-Isso serve os arquivos estáticos + roda as functions em `/api/*`.
 
 ## Environment Variables
 
-Configure no Vercel Dashboard (Settings → Environment Variables):
+Configure no Vercel Dashboard:
 
-| Variável | Onde usar | Descrição |
-|---|---|---|
-| `HERE_API_KEY` | Server (api/) | Chave da HERE Geocoding API |
-| `GOOGLE_PLACES_API_KEY` | Server (api/) | Chave do Google Places (New) |
-
-**Nota:** A Supabase anon key e URL estão no client-side (esperado pelo Supabase).
-Quando migrar pra v3-vite, elas vão pra env vars com prefixo `VITE_`.
+| Variável | Descrição |
+|---|---|
+| `HERE_API_KEY` | Chave da HERE Geocoding API |
+| `GOOGLE_PLACES_API_KEY` | Chave do Google Places (New) |
 
 ## Deploy
 
-O deploy é automático via push pro GitHub. O Vercel detecta mudanças e deploya.
+Automático via push pro GitHub → Vercel.
 
-## Branches
+## Acesso
 
-| Branch | Propósito |
-|---|---|
-| `main` | Produção (legacy, HTML estático) |
-| `v3-vite` | Refactor com Vite (em desenvolvimento) |
-
-Preview deployments: cada push na `v3-vite` gera uma URL temporária no Vercel
-pra testar sem afetar produção.
+Qualquer email `@hypr.mobi` via Google OAuth.
