@@ -12,6 +12,7 @@ export const GEO_TIMEOUT_MS = 8000;
 export const RECEITA_MAX_CONCURRENT = 5;
 export const RECEITA_RETRY_DELAY_MS = 2000;
 export const RECEITA_TIMEOUT_MS = 8000;
+export const RECEITA_RAIZ_TIMEOUT_MS = 10000; // CNPJ raiz busca múltiplos estabelecimentos
 
 // ── Places Discovery ──
 export const PLACES_BATCH_SIZE = 10;

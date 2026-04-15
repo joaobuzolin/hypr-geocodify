@@ -2,6 +2,13 @@
 // Busca dados de CNPJ via BrasilAPI → publica.cnpj.ws.
 // Suporta CNPJ completo (14 dígitos) e CNPJ raiz (8 dígitos).
 
+import {
+  RECEITA_MAX_CONCURRENT,
+  RECEITA_RETRY_DELAY_MS,
+  RECEITA_TIMEOUT_MS,
+  RECEITA_RAIZ_TIMEOUT_MS,
+} from '../config.js';
+
 const _cache = {};
 let _inFlight = 0;
 let _pending = 0;
@@ -47,11 +54,11 @@ export async function buscarReceita(cnpjCol) {
   if (cnpjNum.length === 8) {
     const cacheKey = 'raiz_' + cnpjNum;
     if (_cache[cacheKey] !== undefined) return _cache[cacheKey];
-    if (_inFlight >= 5) await new Promise(r => setTimeout(r, 300));
+    if (_inFlight >= RECEITA_MAX_CONCURRENT) await new Promise(r => setTimeout(r, 300));
     _inFlight++;
     try {
       const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), 10000);
+      const tid = setTimeout(() => controller.abort(), RECEITA_RAIZ_TIMEOUT_MS);
       const resp = await fetch(`https://publica.cnpj.ws/cnpj/${cnpjNum}/estabelecimentos?quantidade=5`, {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
@@ -59,7 +66,7 @@ export async function buscarReceita(cnpjCol) {
       clearTimeout(tid);
       if (resp.status === 429) {
         _inFlight--;
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, RECEITA_RETRY_DELAY_MS));
         return buscarReceita(cnpjCol);
       }
       if (!resp.ok) { _cache[cacheKey] = null; _inFlight--; return null; }
@@ -84,7 +91,7 @@ export async function buscarReceita(cnpjCol) {
 
   // Cache por CNPJ completo
   if (_cache[cnpjNum] !== undefined) return _cache[cnpjNum];
-  if (_inFlight >= 5) await new Promise(r => setTimeout(r, 300));
+  if (_inFlight >= RECEITA_MAX_CONCURRENT) await new Promise(r => setTimeout(r, 300));
   _inFlight++;
 
   try {
@@ -99,7 +106,7 @@ export async function buscarReceita(cnpjCol) {
 
     // FALLBACK: publica.cnpj.ws
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 8000);
+    const tid = setTimeout(() => controller.abort(), RECEITA_TIMEOUT_MS);
     const resp = await fetch(`https://publica.cnpj.ws/cnpj/${cnpjNum}`, {
       signal: controller.signal,
       headers: { Accept: 'application/json' },
@@ -108,7 +115,7 @@ export async function buscarReceita(cnpjCol) {
 
     if (resp.status === 429) {
       _inFlight--;
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, RECEITA_RETRY_DELAY_MS));
       return buscarReceita(cnpjCol);
     }
     if (!resp.ok) {
@@ -163,7 +170,7 @@ function normalizeEstab(estab, razaoSocial) {
 async function fetchBrasilAPI(cnpjNum) {
   try {
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), 8000);
+    const tid = setTimeout(() => controller.abort(), RECEITA_TIMEOUT_MS);
     const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjNum}`, {
       signal: controller.signal,
       headers: { Accept: 'application/json' },
