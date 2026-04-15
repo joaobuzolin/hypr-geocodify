@@ -2783,6 +2783,74 @@ async function startGeocoding() {
       await new Promise(function(r) { setTimeout(r, ENRICH_DELAY); });
     }
 
+    // ── RETRY: wait 30s for rate limits to reset, then retry failed ones ──
+    var retryKeys = remainingKeys.filter(function(key) {
+      var rows = cnpjGroups[key];
+      return rows && rows.some(function(r) { return r.bandeira === 'Não identificado' || r.bandeira === 'Carregando...' || r.bandeira === 'Desconhecido'; });
+    });
+    if (retryKeys.length > 0 && !geocodingCancelled) {
+      document.getElementById('geo-title-text').textContent = 'Aguardando reset de APIs...';
+      document.getElementById('geo-current').textContent = retryKeys.length + ' CNPJs para retry em 20s';
+      // Countdown
+      for (var cd = 20; cd > 0 && !geocodingCancelled; cd--) {
+        document.getElementById('geo-eta').textContent = cd + 's';
+        await new Promise(function(r) { setTimeout(r, 1000); });
+      }
+      if (!geocodingCancelled) {
+        document.getElementById('geo-title-text').textContent = 'Retry — recuperando nomes';
+        enrichFail = 0; // Reset fail count for retry pass
+        var retryDone = 0;
+        var retryStart = Date.now();
+        for (var ri = 0; ri < retryKeys.length; ri += ENRICH_BATCH * PARALLEL_REQUESTS) {
+          if (geocodingCancelled) break;
+          var retryBatches = [];
+          for (var rp = 0; rp < PARALLEL_REQUESTS; rp++) {
+            var rStart = ri + rp * ENRICH_BATCH;
+            if (rStart >= retryKeys.length) break;
+            retryBatches.push(retryKeys.slice(rStart, rStart + ENRICH_BATCH));
+          }
+          var retryResponses = await Promise.allSettled(retryBatches.map(function(batchKeys) {
+            var cnpjNums = batchKeys.map(function(key) { return key.startsWith('raiz_') ? key.slice(5) : key; });
+            return fetch('/api/cnpj-enrich', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cnpjs: cnpjNums }),
+            }).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+          }));
+          for (var rpi = 0; rpi < retryBatches.length; rpi++) {
+            var rBatchKeys = retryBatches[rpi];
+            var rData = retryResponses[rpi].status === 'fulfilled' ? retryResponses[rpi].value : null;
+            var rResults = rData ? (rData.results || {}) : {};
+            rBatchKeys.forEach(function(key) {
+              var rows = cnpjGroups[key];
+              if (!rows) return;
+              var lookupKey = key.startsWith('raiz_') ? key.slice(5) : key;
+              var result = rResults[lookupKey];
+              if (result && (result.nome_exibicao || result.nome_fantasia || result.razao_social)) {
+                var receita = {
+                  nome_fantasia: result.nome_fantasia || '', razao_social: result.razao_social || '',
+                  nome_exibicao: result.nome_exibicao || '', municipio: result.municipio || '',
+                  uf_receita: result.uf || '', cep: result.cep || '',
+                  situacao: result.situacao || '', atividade: result.atividade || '',
+                };
+                rows.forEach(function(row) { aplicarReceita(row, receita); });
+                _receitaCache[key] = receita;
+                enrichOk += rows.length;
+              } else {
+                enrichFail += rows.length;
+              }
+              retryDone += rows.length;
+            });
+          }
+          var rPct = Math.round(retryDone / (retryKeys.length * (totalRows / remainingKeys.length || 1)) * 100);
+          document.getElementById('geo-fill').style.width = Math.min(100, 80 + rPct * 0.2) + '%';
+          document.getElementById('geo-ok').textContent = enrichOk + ' nomes';
+          document.getElementById('geo-fail').textContent = enrichFail > 0 ? enrichFail + ' ✗' : '';
+          document.getElementById('geo-current').textContent = enrichOk + ' identificados · retry ' + retryDone + '/' + (retryKeys.length * (totalRows / remainingKeys.length || 1));
+          await new Promise(function(r) { setTimeout(r, 80); });
+        }
+      }
+    }
+
     // Mark any remaining as definitively not identified
     needsEnrich.forEach(function(row) {
       if (!row.bandeira || row.bandeira === 'Carregando...') row.bandeira = 'Não identificado';
