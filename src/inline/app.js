@@ -132,8 +132,8 @@ function _escForHtml(s) {
 var STATE_NAME_TO_UF = {'Acre':'AC','Alagoas':'AL','Amapá':'AP','Amazonas':'AM','Bahia':'BA','Ceará':'CE','Distrito Federal':'DF','Espírito Santo':'ES','Goiás':'GO','Maranhão':'MA','Mato Grosso do Sul':'MS','Mato Grosso':'MT','Minas Gerais':'MG','Pará':'PA','Paraíba':'PB','Paraná':'PR','Pernambuco':'PE','Piauí':'PI','Rio de Janeiro':'RJ','Rio Grande do Norte':'RN','Rio Grande do Sul':'RS','Rondônia':'RO','Roraima':'RR','Santa Catarina':'SC','São Paulo':'SP','Sergipe':'SE','Tocantins':'TO'};
 // HERE key: usada APENAS para satellite tiles do MapLibre (raster tile URL precisa da key no client).
 // Geocoding e reverse geocoding usam o proxy server-side /api/geocode (key fica no Vercel env vars).
-// TODO: criar key separada restrita a Map Tile API + referrer restriction no HERE console.
-var _HERE_SAT_KEY = 'abXwwRsBKFvJdsCWLt18_is1dcqXDOaTyxRAIlrEmMg';
+// Key restrita a Map Tile API v2 + referrer lock (geocodify.hypr.mobi, *.vercel.app, localhost).
+var _HERE_SAT_KEY = 'cxwGDGEtFvYZ7Qjvyr14HvCOay4qi7r6-tTGOIK98Xs';
 var allData = [];
 var filteredData = [];
 var map = null;
