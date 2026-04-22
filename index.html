@@ -577,9 +577,9 @@
     <div class="resize-handle" id="sidebar-resizer" title="Arrastar para redimensionar"></div>
     <div id="map-container" style="position:relative;">
 <div id="places-panel" style="display:none; position:absolute; top:12px; left:12px; z-index:500; width:340px; max-height:calc(100vh - 90px); overflow-y:auto; background:var(--surface-overlay-strong); border:1px solid var(--glass-border); border-radius:16px; box-shadow:var(--shadow-card); padding:20px; backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px); transition: width 0.2s, padding 0.2s;">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-    <div style="font-size:13px;font-weight:600;color:var(--text);" id="places-panel-title">🔎 Places Discovery</div>
-    <button onclick="togglePlacesPanel()" id="btn-minimize-panel" style="background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;font-family:var(--font);padding:0 4px;" title="Minimizar painel">‹</button>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--glass-border);">
+    <div style="font-size:13px;font-weight:600;color:var(--text);letter-spacing:0.2px;" id="places-panel-title">🔎 Places Discovery</div>
+    <button onclick="togglePlacesPanel()" id="btn-minimize-panel" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:14px;cursor:pointer;font-family:var(--font);width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s;line-height:1;" title="Minimizar painel" onmouseover="this.style.background='var(--purple-bg)';this.style.borderColor='var(--purple)';this.style.color='var(--purple)';" onmouseout="this.style.background='var(--surface2)';this.style.borderColor='var(--border)';this.style.color='var(--text)';">‹</button>
   </div>
   <div id="places-panel-body">
 
