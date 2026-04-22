@@ -1822,6 +1822,7 @@ function setMapView(view) {
   const listEl = document.getElementById('geocoder-list-view');
   const btnMap  = document.getElementById('btn-view-map');
   const btnList = document.getElementById('btn-view-list');
+  const placesPanel = document.getElementById('places-panel');
 
   if (btnMap) btnMap.classList.toggle('active', view === 'map');
   if (btnList) btnList.classList.toggle('active', view === 'list');
@@ -1837,9 +1838,20 @@ function setMapView(view) {
       listEl.style.overflowY = 'auto';
       listEl.style.padding = '16px';
     }
+    // Places Discovery panel sits at z-index:500 and would overlap the list.
+    // Remember its visibility and hide it while list is open.
+    if (placesPanel && currentMapType === 'places_discovery') {
+      placesPanel._wasVisibleBeforeList = placesPanel.style.display !== 'none';
+      placesPanel.style.display = 'none';
+    }
     renderGeocoderList();
   } else {
     if (listEl) listEl.style.display = 'none';
+    // Restore places-panel when returning to the map.
+    if (placesPanel && currentMapType === 'places_discovery' && placesPanel._wasVisibleBeforeList) {
+      placesPanel.style.display = 'block';
+      placesPanel._wasVisibleBeforeList = false;
+    }
     setTimeout(() => map && map.resize(), 100);
   }
 }
@@ -4497,18 +4509,29 @@ function togglePlacesPanel() {
   var body = document.getElementById('places-panel-body');
   var title = document.getElementById('places-panel-title');
   var btn = document.getElementById('btn-minimize-panel');
+  var header = panel ? panel.firstElementChild : null; // the header row div
   _placesPanelMinimized = !_placesPanelMinimized;
   if (_placesPanelMinimized) {
     body.style.display = 'none';
     panel.style.width = 'auto';
-    panel.style.padding = '10px 14px';
+    panel.style.padding = '12px 16px';
+    if (header) {
+      header.style.marginBottom = '0';
+      header.style.paddingBottom = '0';
+      header.style.borderBottom = 'none';
+    }
     title.textContent = '🔎';
     btn.textContent = '›';
     btn.title = 'Expandir painel';
   } else {
     body.style.display = '';
-    panel.style.width = '320px';
-    panel.style.padding = '16px';
+    panel.style.width = '340px';
+    panel.style.padding = '20px';
+    if (header) {
+      header.style.marginBottom = '14px';
+      header.style.paddingBottom = '10px';
+      header.style.borderBottom = '1px solid var(--glass-border)';
+    }
     title.textContent = '🔎 Places Discovery';
     btn.textContent = '‹';
     btn.title = 'Minimizar painel';
