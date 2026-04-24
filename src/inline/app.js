@@ -2653,6 +2653,7 @@ async function startGeocoding() {
 
   // Mostrar barra flutuante discreta
   document.getElementById('geo-title-text').textContent = 'Buscando Receita + Geocodificando';
+  _resetPlacesOverlayFields();
   document.getElementById('geocoding-overlay').classList.add('active');
 
   // Centralizar mapa no Brasil enquanto carrega
@@ -2858,6 +2859,7 @@ async function startGeocoding() {
     document.getElementById('geo-fail').textContent = '';
     document.getElementById('geo-eta').textContent = '';
     document.getElementById('geo-current').textContent = 'Consultando cache...';
+    _resetPlacesOverlayFields();
     overlay2.classList.add('active');
 
     // ── Helper: extract cache key from row (same logic as buscarReceita) ──
@@ -3119,6 +3121,7 @@ async function startReverseGeocoding() {
   window.addEventListener('beforeunload', window._unloadHandler);
 
   const overlay = document.getElementById('geocoding-overlay');
+  _resetPlacesOverlayFields();
   overlay.classList.add('active');
   document.getElementById('geo-current').textContent = 'Iniciando reverse geocoding...';
   document.getElementById('geo-fill').style.width = '0%';
@@ -3816,6 +3819,7 @@ async function openSavedMap(mapId, name, mapType) {
   if (map) map.resize();
 
   const overlay = document.getElementById('geocoding-overlay');
+  _resetPlacesOverlayFields();
   overlay.classList.add('active');
   document.getElementById('geo-current').textContent = `Carregando "${name}"...`;
   document.getElementById('geo-fill').style.width = '0%';
@@ -4224,6 +4228,7 @@ async function startReenrich() {
   document.getElementById('geo-fail').textContent = '';
   document.getElementById('geo-eta').textContent = '';
   document.getElementById('geo-current').textContent = needsEnrich.length + ' CNPJs para atualizar...';
+  _resetPlacesOverlayFields();
   document.getElementById('geocoding-overlay').classList.add('active');
   geocodingCancelled = false;
 
@@ -4524,6 +4529,20 @@ function extractQueryTokens(query) {
   return normalized.split(' ').filter(function(t) {
     return t.length >= 3 && !_NAME_FILTER_STOP_WORDS[t];
   });
+}
+
+// Resets Places Discovery-specific overlay fields (cache chip, segmented
+// progress fills). Called by OTHER flows (Receita/CNPJ, Reverse Geocoding,
+// Attack Plan, map load, nome refresh) when they open the shared
+// geocoding-overlay, so residual state from a previous Places Discovery
+// session doesn't bleed visually into their progress UI.
+function _resetPlacesOverlayFields() {
+  var cacheChip = document.getElementById('geo-cache');
+  if (cacheChip) { cacheChip.style.display = 'none'; cacheChip.textContent = '💾 0'; }
+  var fillCache = document.getElementById('geo-fill-cache');
+  if (fillCache) fillCache.style.width = '0%';
+  var fillApi = document.getElementById('geo-fill-api');
+  if (fillApi) fillApi.style.width = '0%';
 }
 
 // All tokens must be present in the place name (substring match, normalized).
