@@ -4943,10 +4943,14 @@ async function startPlacesDiscovery() {
   overlay.classList.add('active');
   document.getElementById('geo-current').textContent = _appendMode ? 'Expandindo busca...' : 'Preparando busca...';
   document.getElementById('geo-fill').style.width = '0%';
+  document.getElementById('geo-fill-cache').style.width = '0%';
+  document.getElementById('geo-fill-api').style.width = '0%';
   document.getElementById('geo-pct').textContent = '0%';
   document.getElementById('geo-ok').textContent = '';
   document.getElementById('geo-fail').textContent = '';
   document.getElementById('geo-eta').textContent = '';
+  var cacheChipEl = document.getElementById('geo-cache');
+  if (cacheChipEl) { cacheChipEl.style.display = 'none'; cacheChipEl.textContent = '💾 0'; }
   _placesDiscoveryCancelled = false;
   geocodingActive = true;
   window._unloadHandler = function(e) { if (geocodingActive) { e.preventDefault(); return e.returnValue = 'Busca em andamento.'; } };
@@ -4961,6 +4965,8 @@ async function startPlacesDiscovery() {
   var found = 0, errors = 0, filtered = 0, skippedDupes = 0;
   var filteredByRadius = 0; // Pin mode: places returned outside the requested radius
   var filteredByName = 0; // Opt-in: places whose name didn't match the query tokens
+  // places_cache transparency counters (aggregated from proxy responses during Phase 2)
+  var cacheHits = 0, apiFetched = 0;
   var startTime = Date.now(), allPlaceIds = [];
   // Store allowed UFs for Phase 2 filtering (only for city/state mode)
   var allowedUFs = null;
@@ -5006,7 +5012,8 @@ async function startPlacesDiscovery() {
       document.getElementById('geo-fill').style.width = pv+'%';
       document.getElementById('geo-pct').textContent = pv+'%';
       document.getElementById('geo-ok').textContent = allPlaceIds.length+' novos';
-      document.getElementById('geo-current').textContent = 'Buscando: '+(ai+1)+'/'+total+' · '+allPlaceIds.length+' novos' + (skippedDupes > 0 ? ' · ' + skippedDupes + ' dup' : '');
+      var dupLabel = _appendMode ? ' já no mapa' : ' dup';
+      document.getElementById('geo-current').textContent = 'Buscando: '+(ai+1)+'/'+total+' · '+allPlaceIds.length+' novos' + (skippedDupes > 0 ? ' · ' + skippedDupes + dupLabel : '');
       await new Promise(function(r){setTimeout(r,50);});
     }
   } else {
@@ -5055,7 +5062,8 @@ async function startPlacesDiscovery() {
       document.getElementById('geo-fill').style.width = pv+'%';
       document.getElementById('geo-pct').textContent = pv+'%';
       document.getElementById('geo-ok').textContent = allPlaceIds.length+' novos';
-      document.getElementById('geo-current').textContent = task.label+'/'+task.uf+' ('+completed+'/'+total+') · '+allPlaceIds.length+' novos' + (skippedDupes > 0 ? ' · ' + skippedDupes + ' dup' : '');
+      var dupLabel = _appendMode ? ' já no mapa' : ' dup';
+      document.getElementById('geo-current').textContent = task.label+'/'+task.uf+' ('+completed+'/'+total+') · '+allPlaceIds.length+' novos' + (skippedDupes > 0 ? ' · ' + skippedDupes + dupLabel : '');
     }
     
     // Process tasks in parallel batches of CONCURRENCY
@@ -5079,6 +5087,9 @@ async function startPlacesDiscovery() {
       var resp2 = await fetch('/api/places-search', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'details', placeIds:batch }) });
       var data2 = await resp2.json();
       if (resp2.ok && data2.places) {
+        // Aggregate cache transparency counters from proxy (places_cache hits vs Google API fetches)
+        if (typeof data2.cached === 'number') cacheHits += data2.cached;
+        if (typeof data2.fetched === 'number') apiFetched += data2.fetched;
         // Track which IDs were successfully returned
         var returnedIds = {};
         for (var ri=0;ri<data2.places.length;ri++) {
@@ -5146,12 +5157,25 @@ async function startPlacesDiscovery() {
     }
     await Promise.all(parallelBatches.map(enrichBatch));
     await new Promise(function(r){setTimeout(r,150);});
-    var pv2 = 50+Math.round(enriched/allPlaceIds.length*50);
-    document.getElementById('geo-fill').style.width = Math.min(pv2,99)+'%';
-    document.getElementById('geo-pct').textContent = Math.min(pv2,99)+'%';
+    // Segmented progress: Phase 1 (geo-fill) locked at 50%, Phase 2 splits cache vs API.
+    // Total = 50% + proportional cache and API contributions based on allPlaceIds.length.
+    var total2 = allPlaceIds.length || 1;
+    var cachePct = 50 * (cacheHits / total2);
+    var apiPct = 50 * (apiFetched / total2);
+    document.getElementById('geo-fill').style.width = '50%';
+    document.getElementById('geo-fill-cache').style.width = cachePct + '%';
+    document.getElementById('geo-fill-api').style.width = apiPct + '%';
+    var totalPct = Math.min(Math.round(50 + cachePct + apiPct), 99);
+    document.getElementById('geo-pct').textContent = totalPct+'%';
     document.getElementById('geo-ok').textContent = found+' \u2713';
     document.getElementById('geo-fail').textContent = failedIds.length>0?failedIds.length+' pendentes':'';
-    document.getElementById('geo-current').textContent = 'Detalhes: '+enriched+'/'+allPlaceIds.length+' \u00b7 '+found+' novos' + (skippedDupes > 0 ? ' (' + skippedDupes + ' dup)' : '') + (failedIds.length > 0 ? ' (' + failedIds.length + ' retry)' : '');
+    // Show cache chip once we have any hits
+    var cacheChipEl2 = document.getElementById('geo-cache');
+    if (cacheChipEl2) {
+      if (cacheHits > 0) { cacheChipEl2.style.display = ''; cacheChipEl2.textContent = '💾 ' + cacheHits; }
+      else { cacheChipEl2.style.display = 'none'; }
+    }
+    document.getElementById('geo-current').textContent = 'Detalhes: '+enriched+'/'+allPlaceIds.length+' \u00b7 \ud83d\udcbe '+cacheHits+' cache \u00b7 \ud83c\udf10 '+apiFetched+' API \u00b7 \u2713 '+found+' novos' + (failedIds.length > 0 ? ' \u00b7 ' + failedIds.length + ' retry' : '');
     if (enriched%60===0||enriched>=allPlaceIds.length) { filteredData=allData.slice(); renderMarkers(); }
     var elapsed=Date.now()-startTime, rate=enriched/(elapsed/1000), remaining=allPlaceIds.length-enriched;
     var eta=remaining>0&&rate>0?Math.round(remaining/rate):0;
@@ -5162,7 +5186,7 @@ async function startPlacesDiscovery() {
   // Store failed IDs for optional retry later
   window._pendingRetryIds = failedIds.length > 0 ? failedIds.slice() : [];
   // Store search stats for finish screen
-  window._lastSearchStats = { newIds: allPlaceIds.length, skippedDupes: skippedDupes, found: found, errors: errors, existingCount: existingCount, filtered: filtered, filteredByRadius: filteredByRadius, filteredByName: filteredByName };
+  window._lastSearchStats = { newIds: allPlaceIds.length, skippedDupes: skippedDupes, found: found, errors: errors, existingCount: existingCount, filtered: filtered, filteredByRadius: filteredByRadius, filteredByName: filteredByName, cacheHits: cacheHits, apiFetched: apiFetched };
   finishPlacesDiscovery();
 }
 
@@ -5199,6 +5223,12 @@ function finishPlacesDiscovery() {
   var dupes = stats.skippedDupes || 0;
   var foundDetails = stats.found || 0;
   var filteredGeo = stats.filtered || 0;
+  var cacheHits = stats.cacheHits || 0;
+  var apiFetched = stats.apiFetched || 0;
+  // Google Places Details Pro SKU reference pricing: $17 per 1000 requests ($0.017/req).
+  // Used only as an estimate — disclose as such in UI.
+  var PLACES_DETAILS_COST_USD = 0.017;
+  var savingsUSD = cacheHits * PLACES_DETAILS_COST_USD;
   
   if (allData.length > 0) {
     var pts = allData.filter(function(r){return r.lat&&r.lon;});
@@ -5240,12 +5270,26 @@ function finishPlacesDiscovery() {
       detailHtml += '<span style="font-weight:600;color:var(--text);">Resultado da expansão:</span><br>';
       if (dupes > 0) detailHtml += '• ' + dupes.toLocaleString('pt-BR') + ' places já existiam no mapa (ignorados sem custo)<br>';
       if (newIds > 0) detailHtml += '• ' + newIds.toLocaleString('pt-BR') + ' IDs novos encontrados<br>';
+      if (cacheHits > 0) detailHtml += '• <span style="color:var(--win);">💾 ' + cacheHits.toLocaleString('pt-BR') + ' reaproveitado' + (cacheHits !== 1 ? 's' : '') + ' do cache (sem custo)</span><br>';
+      if (apiFetched > 0) detailHtml += '• 🌐 ' + apiFetched.toLocaleString('pt-BR') + ' consultado' + (apiFetched !== 1 ? 's' : '') + ' na Google Places API<br>';
       if (filteredGeo > 0) detailHtml += '• ' + filteredGeo + ' descartados por filtro geográfico (fora dos estados selecionados)<br>';
       if (foundDetails > 0) detailHtml += '• <span style="color:var(--win);font-weight:500;">' + foundDetails + ' novo' + (foundDetails !== 1 ? 's' : '') + ' place' + (foundDetails !== 1 ? 's' : '') + ' adicionado' + (foundDetails !== 1 ? 's' : '') + ' ao mapa</span><br>';
       if (newIds === 0 && dupes > 0) detailHtml += '• <span style="color:var(--text-muted);">A API retornou os mesmos places da busca original. Tente expandir para outros estados ou alterar a query.</span><br>';
       if (newIds === 0 && dupes === 0) detailHtml += '• <span style="color:var(--text-muted);">Nenhum place retornado pela API nesta busca.</span><br>';
+      // Savings line (appears only when cache was actually useful)
+      if (cacheHits > 0) {
+        detailHtml += '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--glass-border);color:var(--win);">💡 Economia estimada: ~$' + savingsUSD.toFixed(2) + ' nesta busca <span style="color:var(--text-muted);font-size:10px;">(ref. Places Details Pro $0,017/req)</span></div>';
+      }
       detailHtml += '</div>';
       document.getElementById('places-results-summary').innerHTML += detailHtml;
+    } else if (cacheHits > 0) {
+      // First-time search with cache hits — compact banner explaining reuse
+      var firstHtml = '<div style="margin-top:8px;padding:8px 12px;background:var(--win-bg);border:1px solid rgba(16,185,129,0.25);border-radius:8px;font-size:11px;color:var(--text-dim);line-height:1.6;">';
+      firstHtml += '<span style="color:var(--win);">💾 ' + cacheHits.toLocaleString('pt-BR') + ' place' + (cacheHits !== 1 ? 's' : '') + ' reaproveitado' + (cacheHits !== 1 ? 's' : '') + ' do cache</span>';
+      if (apiFetched > 0) firstHtml += ' <span style="color:var(--text-muted);">·</span> 🌐 ' + apiFetched.toLocaleString('pt-BR') + ' consultado' + (apiFetched !== 1 ? 's' : '') + ' na API';
+      firstHtml += '<br><span style="color:var(--win);">💡 Economia estimada: ~$' + savingsUSD.toFixed(2) + '</span> <span style="color:var(--text-muted);font-size:10px;">(ref. Places Details Pro $0,017/req)</span>';
+      firstHtml += '</div>';
+      document.getElementById('places-results-summary').innerHTML += firstHtml;
     }
     
     // Show/hide retry button
@@ -5340,10 +5384,17 @@ async function retryPendingIds() {
   document.getElementById('geo-fail').textContent = '';
   document.getElementById('geo-eta').textContent = '';
   document.getElementById('geo-current').textContent = 'Processando ' + ids.length + ' pendentes...';
+  document.getElementById('geo-fill').style.width = '0%';
+  document.getElementById('geo-fill-cache').style.width = '0%';
+  document.getElementById('geo-fill-api').style.width = '0%';
+  var cacheChipRetry = document.getElementById('geo-cache');
+  if (cacheChipRetry) { cacheChipRetry.style.display = 'none'; cacheChipRetry.textContent = '💾 0'; }
   
   geocodingActive = true;
   _placesDiscoveryCancelled = false;
   var found = 0, processed = 0, newFailed = [];
+  // Retry also captures places_cache transparency counters
+  var cacheHits = 0, apiFetched = 0;
   var BATCH = 10;
   
   for (var i = 0; i < ids.length; i += BATCH) {
@@ -5359,6 +5410,8 @@ async function retryPendingIds() {
       var resp = await fetch('/api/places-search', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'details', placeIds: newBatch }) });
       var data = await resp.json();
       if (resp.ok && data.places) {
+        if (typeof data.cached === 'number') cacheHits += data.cached;
+        if (typeof data.fetched === 'number') apiFetched += data.fetched;
         var returnedIds = {};
         for (var ri = 0; ri < data.places.length; ri++) {
           var p = data.places[ri];
@@ -5392,11 +5445,23 @@ async function retryPendingIds() {
       for (var fi = 0; fi < newBatch.length; fi++) newFailed.push(newBatch[fi]);
     }
     processed += batch.length;
-    var pv = Math.round(processed / ids.length * 100);
-    document.getElementById('geo-fill').style.width = Math.min(pv, 99) + '%';
+    // Retry progress: geo-fill stays at 0 (no Phase 1), cache+api split the full 100%.
+    var totalRetry = ids.length || 1;
+    var cachePctR = 100 * (cacheHits / totalRetry);
+    var apiPctR = 100 * (apiFetched / totalRetry);
+    document.getElementById('geo-fill').style.width = '0%';
+    document.getElementById('geo-fill-cache').style.width = cachePctR + '%';
+    document.getElementById('geo-fill-api').style.width = apiPctR + '%';
+    var pv = Math.min(Math.round(cachePctR + apiPctR), 99);
     document.getElementById('geo-pct').textContent = pv + '%';
     document.getElementById('geo-ok').textContent = found + ' novos';
-    document.getElementById('geo-current').textContent = 'Recuperando: ' + processed + '/' + ids.length + ' · ' + found + ' novos · ' + newFailed.length + ' falharam';
+    // Update cache chip
+    var cacheChipR = document.getElementById('geo-cache');
+    if (cacheChipR) {
+      if (cacheHits > 0) { cacheChipR.style.display = ''; cacheChipR.textContent = '💾 ' + cacheHits; }
+      else { cacheChipR.style.display = 'none'; }
+    }
+    document.getElementById('geo-current').textContent = 'Recuperando: ' + processed + '/' + ids.length + ' \u00b7 \ud83d\udcbe ' + cacheHits + ' cache \u00b7 \ud83c\udf10 ' + apiFetched + ' API \u00b7 ' + found + ' novos' + (newFailed.length > 0 ? ' \u00b7 ' + newFailed.length + ' falharam' : '');
     if (processed % 100 === 0) { filteredData = allData.slice(); renderMarkers(); }
     await new Promise(function(r) { setTimeout(r, 300); });
   }
