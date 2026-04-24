@@ -8,9 +8,12 @@ const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://qfyqvcxhcmduhknbpofx.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmeXF2Y3hoY21kdWhrbmJwb2Z4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0Mjk1NjAsImV4cCI6MjA4OTAwNTU2MH0.k92V1LN4OqqdtfF86iml4L-gVg0AabENKt7S5vlP2dk';
 
-// Google Places Platform ToS caps non-place_id content at 30 days.
-// Stale entries force a refetch via Place Details.
-const PLACES_CACHE_TTL_MS = 30 * 86400 * 1000;
+// places_cache acts as a permanent proprietary base — entries never expire
+// automatically. Rows are only removed or refreshed via explicit SQL ran
+// against Supabase. This prioritizes long-term cost reduction on the
+// Google Places Details Pro SKU over data freshness; accept that addresses
+// may drift over time (stores closing, moving) unless manually refreshed.
+const PLACES_CACHE_TTL_MS = null; // was: 30 * 86400 * 1000
 
 const ALLOWED_ORIGINS = [
   'https://geocodify.hypr.mobi',
@@ -154,9 +157,7 @@ async function handleDetails(body) {
       const cached = await cacheResp.json();
       const hitSet = new Set();
       for (const c of cached) {
-        // Skip stale entries — app refreshes them via Google Details
-        const ageMs = Date.now() - new Date(c.refreshed_at).getTime();
-        if (ageMs > PLACES_CACHE_TTL_MS) continue;
+        // TTL disabled — entries never auto-expire.
         // Skip corrupt entries (missing coords)
         if (c.lat == null || c.lon == null) continue;
         results.push({
