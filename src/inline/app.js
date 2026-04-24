@@ -5352,7 +5352,7 @@ async function autoSaveExpandedPlaces(mapId) {
           place_status: r.place_status || null,
         };
       });
-      var inserted = await sbFetch('map_pdvs', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(chunk) });
+      var inserted = await sbFetch('map_pdvs?on_conflict=map_id,place_id', { method: 'POST', headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' }, body: JSON.stringify(chunk) });
       // Map inserted ids back to allData rows so next save() skips them
       if (Array.isArray(inserted)) {
         for (var ii = 0; ii < inserted.length; ii++) {
