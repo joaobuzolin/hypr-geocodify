@@ -5327,7 +5327,15 @@ async function autoSaveExpandedPlaces(mapId) {
     }
     if (summary) summary.innerHTML += '<br><span style="color:var(--text-dim);font-size:11px;">Salvando ' + newPlaces.length + ' novos places...</span>';
     
-    // Insert new places in chunks
+    // Build lookup to assign DB ids back to allData rows after insert
+    // (so subsequent saves don't re-insert the same rows).
+    var byPlaceId = {};
+    for (var ai = 0; ai < allData.length; ai++) {
+      var r = allData[ai];
+      if (!r.id && r.place_id) byPlaceId[r.place_id] = r;
+    }
+    
+    // Insert new places in chunks; use return=representation so we can map ids back
     var CHUNK = 500;
     for (var i = 0; i < newPlaces.length; i += CHUNK) {
       var chunk = newPlaces.slice(i, i + CHUNK).map(function(r) {
@@ -5344,7 +5352,15 @@ async function autoSaveExpandedPlaces(mapId) {
           place_status: r.place_status || null,
         };
       });
-      await sbFetch('map_pdvs', { method: 'POST', headers: { 'Prefer': 'return=minimal' }, body: JSON.stringify(chunk) });
+      var inserted = await sbFetch('map_pdvs', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify(chunk) });
+      // Map inserted ids back to allData rows so next save() skips them
+      if (Array.isArray(inserted)) {
+        for (var ii = 0; ii < inserted.length; ii++) {
+          var ins = inserted[ii];
+          var target = ins.place_id && byPlaceId[ins.place_id];
+          if (target) target.id = ins.id;
+        }
+      }
     }
     
     // Update row_count and payload on saved_maps
@@ -5477,6 +5493,14 @@ async function retryPendingIds() {
   document.getElementById('places-results-summary').innerHTML = '<strong>' + allData.length + '</strong> places' + (pendingCount > 0 ? ' · <span style="color:#f59e0b;">' + pendingCount.toLocaleString('pt-BR') + ' pendentes</span>' : ' · <span style="color:var(--win);">completo</span>');
   var retryBtn = document.getElementById('btn-retry-pending');
   if (retryBtn) retryBtn.style.display = pendingCount > 0 ? 'block' : 'none';
+  
+  // Persist recovered places to map_pdvs so they survive page reloads.
+  // autoSaveExpandedPlaces filters by !r.id so it also catches any previously
+  // unsaved rows from earlier retries. Safe to call even when nothing new came
+  // back from this retry — the function short-circuits when no new rows exist.
+  if (window._savedMapId) {
+    await autoSaveExpandedPlaces(window._savedMapId);
+  }
 }
 
 function resetPlacesForNewSearch() {
