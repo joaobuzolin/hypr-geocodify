@@ -3261,6 +3261,16 @@ function showGeoToast(okCount, failCount, mismatchCount, total) {
   parts.push(total.toLocaleString('pt-BR') + ' total');
   stats.innerHTML = parts.join(' · ');
 
+  // Esconder CTA "Salvar mapa" quando auto-save vai rodar (_pendingMapName)
+  // ou já rodou (_currentOpenMapId). Em fluxos com nome do step 2 do wizard
+  // ou Places Discovery, o save é automático — oferecer o botão abre modal
+  // com estado leftover e permite duplicar linha em saved_maps.
+  var saveBtn = toast.querySelector('.geo-toast-btn.primary');
+  if (saveBtn) {
+    var willAutoSave = !!(window._pendingMapName || window._currentOpenMapId);
+    saveBtn.style.display = willAutoSave ? 'none' : '';
+  }
+
   toast.classList.remove('hiding');
   toast.classList.add('active');
 
@@ -3281,10 +3291,21 @@ function dismissGeoToast() {
 
 function openSaveModalFromToast() {
   dismissGeoToast();
+  // Se mapa já está salvo, não abrir modal — apenas notificar
+  if (window._currentOpenMapId) {
+    var summary = document.getElementById('places-results-summary');
+    if (summary) summary.innerHTML += '<br><span style="color:var(--win);font-size:11px;">✓ Mapa já está salvo</span>';
+    return;
+  }
   // Abrir o modal de salvar — preencher nome se já existe do step2
   var saveModal = document.getElementById('save-modal');
   if (saveModal) {
-    saveModal.style.display = 'flex';
+    // Reset de estado leftover (status/disabled de saves anteriores)
+    var statusEl = document.getElementById('save-status');
+    if (statusEl) statusEl.textContent = '';
+    var btn = document.getElementById('save-btn');
+    if (btn) btn.disabled = false;
+    saveModal.classList.add('active');
     var nameInput = document.getElementById('save-name');
     var pendingName = window._pendingMapName || document.getElementById('map-name-input')?.value || '';
     if (nameInput && !nameInput.value && pendingName) nameInput.value = pendingName;
@@ -3924,7 +3945,10 @@ async function autoSaveAndNotify() {
 }
 
 function closeSaveModal() {
-  document.getElementById('save-modal').classList.remove('active');
+  var modal = document.getElementById('save-modal');
+  modal.classList.remove('active');
+  // Defensive: clear inline style in case any legacy path used style.display
+  modal.style.display = '';
 }
 
 async function saveMapToSupabase() {
@@ -3933,6 +3957,15 @@ async function saveMapToSupabase() {
 
   const btn = document.getElementById('save-btn');
   const status = document.getElementById('save-status');
+
+  // Guard: se mapa já foi salvo nesta sessão, não criar duplicata em saved_maps
+  if (window._currentOpenMapId) {
+    status.innerHTML = '<span style="color:var(--win)">✓ Mapa já está salvo</span>';
+    btn.disabled = false;
+    setTimeout(closeSaveModal, 1500);
+    return;
+  }
+
   btn.disabled = true;
   status.textContent = 'Salvando mapa...';
 
@@ -4010,6 +4043,13 @@ async function saveMapToSupabase() {
     }
 
     status.innerHTML = `<span style="color:var(--win)">✓ Mapa salvo com sucesso!</span>`;
+    // Marcar mapa como salvo na sessão — evita duplicata em saves subsequentes
+    // e desbloqueia features que dependem do ID (ex: openShareModal)
+    window._currentOpenMapId = mapId;
+    // Limpar estado pendente — auto-save já consumiu
+    window._pendingMapName = null;
+    window._pendingMapDesc = null;
+    btn.disabled = false;
     setTimeout(closeSaveModal, 1500);
   } catch(e) {
     status.innerHTML = `<span style="color:var(--lose)">Erro: ${escHtml(e.message)}</span>`;
