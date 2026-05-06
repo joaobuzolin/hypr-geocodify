@@ -4046,6 +4046,9 @@ async function saveMapToSupabase() {
     // Marcar mapa como salvo na sessão — evita duplicata em saves subsequentes
     // e desbloqueia features que dependem do ID (ex: openShareModal)
     window._currentOpenMapId = mapId;
+    // Revelar botão de compartilhar no header (mesmo padrão de openSavedMap)
+    var shareBtn = document.getElementById('btn-share-map');
+    if (shareBtn && !_isSharedMode) shareBtn.style.display = '';
     // Limpar estado pendente — auto-save já consumiu
     window._pendingMapName = null;
     window._pendingMapDesc = null;
