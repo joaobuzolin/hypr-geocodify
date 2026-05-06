@@ -4557,6 +4557,69 @@ function matchesNameFilter(placeName, tokens) {
   return true;
 }
 
+// ─── Phase 1.5: Bulk cache lookup helpers ────────────────────────────────
+// Read places_cache directly from Supabase before invoking the serverless
+// proxy. The proxy still runs its own cache check as defense-in-depth, so
+// any failure here degrades gracefully — we just lose the optimization
+// for that request, never break the flow.
+async function bulkCacheLookup(placeIds) {
+  var hits = new Map();
+  if (!placeIds || !placeIds.length) return hits;
+  // URL safety: each place_id ~30 chars + comma. 200 IDs ~6.4k — well below
+  // typical 8-16k URL limits at proxies/CDNs. Chunk to be safe.
+  var CHUNK = 200;
+  for (var i = 0; i < placeIds.length; i += CHUNK) {
+    var slice = placeIds.slice(i, i + CHUNK);
+    var idList = slice.map(encodeURIComponent).join(',');
+    var url = SUPABASE_URL + '/rest/v1/places_cache?place_id=in.(' + idList + ')&select=place_id,name,address,lat,lon,types';
+    try {
+      var resp = await fetch(url, {
+        headers: { 'apikey': SUPABASE_ANON, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(4000)
+      });
+      if (!resp.ok) continue;
+      var rows = await resp.json();
+      for (var r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        if (row && row.place_id) hits.set(row.place_id, row);
+      }
+    } catch (e) {
+      // Network error / timeout — proxy cache check covers as fallback.
+      console.warn('[bulk-cache] chunk failed:', e && e.message);
+    }
+  }
+  return hits;
+}
+
+// Apply the same filters Phase 2 applies before pushing a place to allData.
+// Returns { accepted, reason } where reason ∈ 'coords'|'radius'|'uf'|'name'|null.
+// Caller decides how to increment counters based on reason.
+function applyCachedPlaceFilters(row, allowedUFs, pinCircles, strictName, nameTokens) {
+  if (row.lat == null || row.lon == null) return { accepted: false, reason: 'coords' };
+  if (pinCircles && !isInsideAnyPinCircle(row.lat, row.lon, pinCircles)) {
+    return { accepted: false, reason: 'radius' };
+  }
+  if (allowedUFs) {
+    var addr = row.address || '';
+    if (addr.indexOf('Brazil') === -1 && addr.indexOf('Brasil') === -1) return { accepted: false, reason: 'uf' };
+    var placeUF = null;
+    var m1 = addr.match(/- ([A-Z]{2}),/);
+    if (m1) placeUF = m1[1];
+    if (!placeUF) { var m2 = addr.match(/, ([A-Z]{2}),/); if (m2) placeUF = m2[1]; }
+    if (!placeUF) {
+      var _sn = STATE_NAME_TO_UF;
+      var m3 = addr.match(/State of ([^,]+)/);
+      if (m3 && _sn[m3[1]]) placeUF = _sn[m3[1]];
+    }
+    if (placeUF && !allowedUFs[placeUF]) return { accepted: false, reason: 'uf' };
+    if (!placeUF && Object.keys(allowedUFs).length < 27) return { accepted: false, reason: 'uf' };
+  }
+  if (strictName && !matchesNameFilter(row.name, nameTokens)) {
+    return { accepted: false, reason: 'name' };
+  }
+  return { accepted: true, reason: null };
+}
+
 function toggleAdvancedFilters() {
   var body = document.getElementById('places-filters-body');
   var icon = document.getElementById('filter-toggle-icon');
@@ -5090,6 +5153,65 @@ async function startPlacesDiscovery() {
       if (_placesDiscoveryCancelled) break;
       var batch = tasks.slice(bi, bi + CONCURRENCY);
       await Promise.all(batch.map(runTask));
+    }
+  }
+
+  if (_placesDiscoveryCancelled) { finishPlacesDiscovery(); return; }
+
+  // Phase 1.5: Bulk cache hydration
+  // Query places_cache once for all collected IDs. Hits are pushed to allData
+  // immediately (after applying the same filters Phase 2 applies), and only
+  // misses proceed to the serverless proxy. Reduces proxy invocations and
+  // round-trips drastically when cache hit rate is high.
+  // Failure modes (network, timeout, partial chunks) degrade gracefully —
+  // the proxy retains its own cache check as defense-in-depth.
+  if (allPlaceIds.length > 0) {
+    document.getElementById('geo-current').textContent = 'Verificando cache (' + allPlaceIds.length + ' places)...';
+    try {
+      var cacheMap = await bulkCacheLookup(allPlaceIds);
+      if (cacheMap.size > 0) {
+        var remaining = [];
+        var bulkCacheHydrated = 0;
+        for (var ip = 0; ip < allPlaceIds.length; ip++) {
+          var pid = allPlaceIds[ip];
+          var row = cacheMap.get(pid);
+          if (!row) { remaining.push(pid); continue; }
+          var fr = applyCachedPlaceFilters(row, allowedUFs, pinCircles, strictName, nameTokens);
+          if (!fr.accepted) {
+            if (fr.reason === 'radius') filteredByRadius++;
+            else if (fr.reason === 'name') filteredByName++;
+            else if (fr.reason === 'uf') filtered++;
+            // 'coords' = silently skipped (corrupt cache row); proxy would also skip
+            continue;
+          }
+          var typesArr = Array.isArray(row.types) ? row.types : [];
+          allData.push({
+            nome: row.name || '',
+            bandeira: row.name || '',
+            geo_address: row.address || '',
+            lat: row.lat, lon: row.lon,
+            place_id: row.place_id,
+            place_types: typesArr.slice(0, 3).join(', '),
+            place_status: '',
+            _mapId: allData.length
+          });
+          found++;
+          bulkCacheHydrated++;
+        }
+        allPlaceIds = remaining;
+        cacheHits += bulkCacheHydrated;
+        // Reflect bulk hits in the UI immediately so the user sees progress
+        // before Phase 2 even starts.
+        var cacheChipBulk = document.getElementById('geo-cache');
+        if (cacheChipBulk && cacheHits > 0) {
+          cacheChipBulk.style.display = '';
+          cacheChipBulk.textContent = '\ud83d\udcbe ' + cacheHits;
+        }
+        // Render cached pins early so the map populates progressively
+        if (bulkCacheHydrated > 0) { filteredData = allData.slice(); renderMarkers(); }
+      }
+    } catch (e) {
+      console.warn('[bulk-cache] lookup failed, falling back to proxy-only:', e && e.message);
     }
   }
 
