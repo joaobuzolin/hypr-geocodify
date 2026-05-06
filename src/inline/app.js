@@ -5175,7 +5175,7 @@ async function startPlacesDiscovery() {
       parallelBatches.push(allPlaceIds.slice(start, start + BATCH));
     }
     await Promise.all(parallelBatches.map(enrichBatch));
-    await new Promise(function(r){setTimeout(r,150);});
+    await new Promise(function(r){setTimeout(r,250);});
     // Segmented progress: Phase 1 (geo-fill) locked at 50%, Phase 2 splits cache vs API.
     // Total = 50% + proportional cache and API contributions based on allPlaceIds.length.
     var total2 = allPlaceIds.length || 1;

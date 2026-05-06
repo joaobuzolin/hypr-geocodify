@@ -180,46 +180,17 @@ async function handleDetails(body) {
   }
 
   // Step 2: Fetch uncached/stale from Google Places Details
+  // GROUP controls peak concurrency against Google. With 2 parallel proxy calls
+  // from the front-end, peak in-flight Google requests = 2 * GROUP. Keep this
+  // conservative — Place Details QPM is the main rate-limit choke point.
   const newEntries = [];
+  let rateLimit429s = 0;
   if (toFetch.length > 0) {
-    const GROUP = 5;
+    const GROUP = 3;
     for (let i = 0; i < toFetch.length; i += GROUP) {
       const group = toFetch.slice(i, i + GROUP);
       const groupResults = await Promise.allSettled(
-        group.map(async (pid) => {
-          for (let attempt = 0; attempt < 2; attempt++) {
-            try {
-              const resp = await fetch(`https://places.googleapis.com/v1/places/${pid}`, {
-                method: 'GET',
-                headers: {
-                  'X-Goog-Api-Key': API_KEY,
-                  'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,types',
-                },
-              });
-              if (resp.ok) {
-                const d = await resp.json();
-                return {
-                  place_id: d.id,
-                  name: d.displayName?.text || (d.formattedAddress || '').split(',')[0] || '',
-                  address: d.formattedAddress || '',
-                  lat: d.location?.latitude || null,
-                  lon: d.location?.longitude || null,
-                  types: d.types || [],
-                  status: '',
-                };
-              }
-              if (resp.status === 429 && attempt === 0) {
-                await new Promise(r => setTimeout(r, 300));
-                continue;
-              }
-              return null;
-            } catch {
-              if (attempt === 0) { await new Promise(r => setTimeout(r, 200)); continue; }
-              return null;
-            }
-          }
-          return null;
-        })
+        group.map(pid => fetchPlaceDetailsWithRetry(pid, (n) => { rateLimit429s += n; }))
       );
       for (const r of groupResults) {
         if (r.status === 'fulfilled' && r.value) {
@@ -240,6 +211,16 @@ async function handleDetails(body) {
       }
     }
   }
+  if (rateLimit429s > 0) {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      scope: 'places-details',
+      event: 'rate_limit_observed',
+      count_429: rateLimit429s,
+      ids_requested: toFetch.length,
+      ids_returned: results.length - cacheHits,
+    }));
+  }
 
   // Step 3: Upsert new/refreshed entries to places_cache (fire-and-forget)
   if (newEntries.length > 0) {
@@ -256,4 +237,85 @@ async function handleDetails(body) {
   }
 
   return { places: results, cached: cacheHits, fetched: toFetch.length };
+}
+
+// ─── Place Details fetch with exponential backoff ──────────────────────────
+// Retries on transient failures (429, 503, 504) up to 3 attempts total.
+// Honors the Retry-After header from Google when present (capped at 8s to
+// avoid a single slow place blocking the whole batch). Non-retryable errors
+// (4xx other than 429, missing place, invalid ID) return null on first hit.
+//
+// onRateLimit(n): callback invoked with 1 each time a 429 is observed, used
+// by the caller to aggregate counts for structured logging.
+const RETRY_DELAYS_MS = [500, 1500, 4000];
+const RETRY_AFTER_CAP_MS = 8000;
+const RETRYABLE_STATUS = new Set([429, 503, 504]);
+
+async function fetchPlaceDetailsWithRetry(pid, onRateLimit) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const resp = await fetch(`https://places.googleapis.com/v1/places/${pid}`, {
+        method: 'GET',
+        headers: {
+          'X-Goog-Api-Key': API_KEY,
+          'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,types',
+        },
+      });
+
+      if (resp.ok) {
+        const d = await resp.json();
+        return {
+          place_id: d.id,
+          name: d.displayName?.text || (d.formattedAddress || '').split(',')[0] || '',
+          address: d.formattedAddress || '',
+          lat: d.location?.latitude || null,
+          lon: d.location?.longitude || null,
+          types: d.types || [],
+          status: '',
+        };
+      }
+
+      if (resp.status === 429) onRateLimit?.(1);
+
+      const isRetryable = RETRYABLE_STATUS.has(resp.status);
+      const isLastAttempt = attempt === 2;
+
+      if (!isRetryable || isLastAttempt) {
+        return null;
+      }
+
+      // Determine wait time: max(exponential backoff, server's Retry-After).
+      // Cap at RETRY_AFTER_CAP_MS so a single rogue place can't stall the batch.
+      const baseDelay = RETRY_DELAYS_MS[attempt];
+      const retryAfterMs = parseRetryAfter(resp.headers.get('retry-after'));
+      const delay = Math.min(
+        Math.max(baseDelay, retryAfterMs || 0),
+        RETRY_AFTER_CAP_MS
+      );
+
+      await new Promise(r => setTimeout(r, delay));
+    } catch (e) {
+      // Network error / abort. Treat as retryable.
+      if (attempt === 2) return null;
+      await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  return null;
+}
+
+// Parse Retry-After header. Google sends seconds (e.g. "1", "5"), but the
+// HTTP spec also allows HTTP-date format. Returns milliseconds or null.
+function parseRetryAfter(headerValue) {
+  if (!headerValue) return null;
+  const trimmed = String(headerValue).trim();
+  // Numeric: seconds (most common case from Google)
+  const asNum = Number(trimmed);
+  if (Number.isFinite(asNum) && asNum >= 0) return Math.round(asNum * 1000);
+  // HTTP-date fallback
+  const asDate = Date.parse(trimmed);
+  if (!Number.isNaN(asDate)) {
+    const diff = asDate - Date.now();
+    return diff > 0 ? diff : null;
+  }
+  return null;
 }
